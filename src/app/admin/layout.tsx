@@ -1,19 +1,37 @@
 import { AdminSidebar } from "@/components/layout/admin-sidebar";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
-import { Menu } from "lucide-react";
-import { auth } from "@clerk/nextjs/server";
+import { Menu, LogOut } from "lucide-react";
 import { redirect } from "next/navigation";
-import { prisma } from "@/lib/prisma";
-// IMPORT USERBUTTON CLERK
-import { UserButton } from "@clerk/nextjs";
+import { getJWTFromCookie } from "@/lib/jwt-utils";
+import Link from "next/link";
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000/api";
+
+async function getUserInfo(userId: string) {
+  try {
+    const res = await fetch(`${API_URL}/users/${userId}`, {
+      cache: "no-store"
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.data;
+  } catch (error) {
+    console.error("Failed to fetch user info:", error);
+    return null;
+  }
+}
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
-  const { userId } = await auth();
-  if (!userId) redirect("/sign-in");
+  const payload = await getJWTFromCookie();
+  
+  if (!payload?.id || payload.role !== "ADMIN") {
+    redirect("/sign-in");
+  }
 
-  const user = await prisma.user.findUnique({ where: { id: userId } });
-  if (!user || user.role !== "ADMIN") redirect("/");
+  // Get user info from backend API
+  const user = await getUserInfo(payload.id);
+  const userEmail = user?.email || payload.id;
 
   return (
     <div className="flex h-screen bg-slate-100 overflow-hidden">
@@ -47,20 +65,26 @@ export default async function AdminLayout({ children }: { children: React.ReactN
             </h2>
           </div>
           
-          {/* KANAN: PROFIL ADMIN (YANG ANDA MINTA) */}
+          {/* KANAN: PROFIL ADMIN */}
           <div className="flex items-center gap-4">
             <div className="hidden sm:block text-right">
               <p className="text-xs font-medium text-slate-500 uppercase tracking-wider">
                 Administrator
               </p>
               <p className="text-sm font-bold text-slate-900 leading-none mt-0.5">
-                {user.email.split("@")[0]} {/* Tampilkan nama depan email */}
+                {userEmail.split("@")[0]} {/* Tampilkan nama depan email */}
               </p>
             </div>
             
-            {/* Tombol Bulat Profil Clerk */}
+            {/* Tombol Logout */}
             <div className="h-8 w-8 flex items-center justify-center">
-              <UserButton afterSignOutUrl="/" />
+              <Link 
+                href="/api/auth/logout"
+                className="p-1.5 text-slate-600 hover:bg-slate-100 rounded-full transition-colors"
+                title="Logout"
+              >
+                <LogOut className="h-5 w-5" />
+              </Link>
             </div>
           </div>
         </header>

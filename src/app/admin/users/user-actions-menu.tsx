@@ -21,7 +21,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { updateUserRole, deleteUser } from "@/actions/admin-user-actions";
+import { updateUserRoleAction, deleteUserAction } from "@/actions/admin-user-actions";
 import { toast } from "sonner";
 
 interface UserActionsMenuProps {
@@ -54,7 +54,7 @@ export function UserActionsMenu({ userId, currentRole }: UserActionsMenuProps) {
     if (!pendingRole) return;
 
     startTransition(async () => {
-      const result = await updateUserRole(userId, pendingRole);
+      const result = await updateUserRoleAction(userId, pendingRole);
       setShowRoleDialog(false); // Tutup dialog
       
       if (result.success) {
@@ -70,7 +70,7 @@ export function UserActionsMenu({ userId, currentRole }: UserActionsMenuProps) {
 
   const executeDelete = () => {
     startTransition(async () => {
-      const result = await deleteUser(userId);
+      const result = await deleteUserAction(userId);
       setShowDeleteDialog(false); // Tutup dialog
 
       if (result.success) {

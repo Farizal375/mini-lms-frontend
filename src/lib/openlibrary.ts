@@ -5,11 +5,11 @@ import {
   OpenLibDoc, 
   OpenLibWork 
 } from "@/types";
-import { prisma } from "@/lib/prisma";
 
 
 const BASE_URL = "https://openlibrary.org";
 const COVER_URL = "https://covers.openlibrary.org/b/id";
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000/api";
 
 // --- Helpers: Mapping Data Mentah ke Tipe 'Book' ---
 
@@ -80,12 +80,20 @@ export async function searchBooks(query: string, limit = 12): Promise<Book[]> {
  */
 export async function getTrendingBooks(): Promise<Book[]> {
   try {
-    // Ambil limit dari database
-    const config = await prisma.systemConfig.findUnique({
-      where: { key: "trending_limit" },
-    });
-    
-    const limit = parseInt(config?.value || "10", 10);
+    // Ambil limit dari backend API
+    let limit = 10; // Default
+    try {
+      const configRes = await fetch(`${API_URL}/admin/config/trending-limit`, {
+        cache: "force-cache",
+        next: { revalidate: 3600 }
+      });
+      if (configRes.ok) {
+        const configData = await configRes.json();
+        limit = parseInt(configData.value || "10", 10);
+      }
+    } catch (err) {
+      console.warn("Could not fetch trending limit from API, using default:", err);
+    }
 
     const res = await fetch("https://openlibrary.org/trending/daily.json", {
       next: { revalidate: 3600 }, 
@@ -126,16 +134,23 @@ export async function getBookDetail(key: string): Promise<Book | null> {
 
     const data = await res.json();
 
-    // Fetch Author Name
+    // Fetch Author Name with timeout to avoid hanging
     let authorName = "Unknown Author";
     if (data.authors && data.authors.length > 0) {
       try {
-        const authorKey = data.authors[0].author.key.replace("/authors/", "");
-        const authorRes = await fetch(`${BASE_URL}/authors/${authorKey}.json`);
-        const authorData = await authorRes.json();
-        authorName = authorData.name || "Unknown Author";
+        const authorKey = data.authors[0].author?.key?.replace("/authors/", "");
+        if (authorKey) {
+          const authorRes = await fetch(`${BASE_URL}/authors/${authorKey}.json`, {
+            next: { revalidate: 86400 },
+            signal: AbortSignal.timeout(5000), // 5-second timeout
+          });
+          if (authorRes.ok) {
+            const authorData = await authorRes.json();
+            authorName = authorData.name || "Unknown Author";
+          }
+        }
       } catch (err) {
-        console.error("Failed to fetch author detail", err);
+        console.warn("Could not fetch author, using fallback:", err);
       }
     }
 

@@ -1,38 +1,63 @@
 "use server";
 
-import { auth } from "@clerk/nextjs/server";
-import { prisma } from "@/lib/prisma";
+import { cookies } from "next/headers";
 import { revalidatePath } from "next/cache";
 
-// KUNCI KONFIGURASI
-const TRENDING_LIMIT_KEY = "trending_limit";
-const DEFAULT_LIMIT = "10";
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000/api";
+const DEFAULT_LIMIT = 10;
 
-// Helper: Cek Admin
-async function checkAdmin() {
-  const { userId } = await auth();
-  if (!userId) throw new Error("Unauthorized");
-
-  const user = await prisma.user.findUnique({ where: { id: userId } });
-  if (user?.role !== "ADMIN") throw new Error("Forbidden");
+async function getToken(): Promise<string | null> {
+  const cookieStore = await cookies();
+  return cookieStore.get("token")?.value || null;
 }
 
-// 1. GET: Ambil Limit saat ini (Server Side)
-export async function getTrendingLimit(): Promise<number> {
-  try {
-    const config = await prisma.systemConfig.findUnique({
-      where: { key: TRENDING_LIMIT_KEY },
-    });
+// Helper: Cek Admin dari JWT token
+async function checkAdmin() {
+  const token = await getToken();
+  
+  if (!token) throw new Error("Unauthorized");
 
-    // Jika belum ada di DB, kembalikan default 10
-    return parseInt(config?.value || DEFAULT_LIMIT, 10);
+  try {
+    // Decode JWT token
+    const base64Url = token.split('.')[1];
+    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+    const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
+        return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+    }).join(''));
+    
+    const payload = JSON.parse(jsonPayload);
+    if (payload.role !== "ADMIN") throw new Error("Forbidden");
   } catch (error) {
-    console.error("Gagal mengambil config:", error);
-    return 10; // Fallback aman
+    throw new Error("Unauthorized");
   }
 }
 
-// 2. UPDATE: Ubah Limit (Server Action)
+// 1. GET: Ambil Limit saat ini dari Backend API
+export async function getTrendingLimit(): Promise<number> {
+  try {
+    const token = await getToken();
+    const res = await fetch(`${API_URL}/admin/config/trending-limit`, {
+      method: "GET",
+      headers: {
+        "Authorization": `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      cache: "no-store",
+    });
+
+    if (!res.ok) {
+      return DEFAULT_LIMIT;
+    }
+
+    const data = await res.json();
+    return parseInt(data.value || DEFAULT_LIMIT, 10);
+  } catch (error) {
+    console.error("Gagal mengambil config:", error);
+    return DEFAULT_LIMIT; // Fallback aman
+  }
+}
+
+// 2. UPDATE: Ubah Limit melalui Backend API
 export async function updateTrendingLimit(newLimit: number) {
   try {
     await checkAdmin();
@@ -41,15 +66,20 @@ export async function updateTrendingLimit(newLimit: number) {
       return { success: false, message: "Jumlah harus antara 4 sampai 100." };
     }
 
-    // Upsert: Update jika ada, Create jika belum ada
-    await prisma.systemConfig.upsert({
-      where: { key: TRENDING_LIMIT_KEY },
-      update: { value: newLimit.toString() },
-      create: { 
-        key: TRENDING_LIMIT_KEY,
-        value: newLimit.toString() 
+    const token = await getToken();
+    const res = await fetch(`${API_URL}/admin/config/trending-limit`, {
+      method: "PUT",
+      headers: {
+        "Authorization": `Bearer ${token}`,
+        "Content-Type": "application/json",
       },
+      body: JSON.stringify({ value: newLimit }),
     });
+
+    if (!res.ok) {
+      const errorData = await res.json();
+      return { success: false, message: errorData.message || "Gagal menyimpan pengaturan." };
+    }
 
     // Revalidate Homepage agar perubahan langsung terlihat
     revalidatePath("/"); 

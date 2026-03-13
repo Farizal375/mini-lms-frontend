@@ -1,78 +1,53 @@
 "use server";
 
-import { auth, currentUser } from "@clerk/nextjs/server";
-import { prisma } from "@/lib/prisma";
+import { cookies } from "next/headers";
 import { Book } from "@/types";
 import { revalidatePath } from "next/cache";
 
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000/api";
+
+async function getToken(): Promise<string | null> {
+  const cookieStore = await cookies();
+  return cookieStore.get("token")?.value || null;
+}
+
 export async function toggleBookmark(book: Book) {
   try {
-    const { userId } = await auth();
-    const user = await currentUser();
+    const token = await getToken();
 
-    if (!userId || !user) {
+    if (!token) {
       return { success: false, message: "Anda harus login terlebih dahulu" };
     }
 
-    // 1. Pastikan User terdaftar di database lokal kita (upsert)
-    await prisma.user.upsert({
-      where: { id: userId },
-      update: { email: user.emailAddresses[0].emailAddress },
-      create: {
-        id: userId,
-        email: user.emailAddresses[0].emailAddress,
-        role: "USER",
+    // Call backend API to toggle bookmark
+    const res = await fetch(`${API_URL}/bookmarks/toggle`, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${token}`,
+        "Content-Type": "application/json",
       },
+      body: JSON.stringify({
+        openLibraryId: book.openLibraryId,
+        title: book.title,
+        author: book.author,
+        coverUrl: book.coverUrl,
+        description: book.description,
+        publishYear: book.publishYear,
+      }),
     });
 
-    // 2. Cek apakah buku sudah ada di database lokal
-    let localBook = await prisma.book.findUnique({
-      where: { openLibraryId: book.openLibraryId },
-    });
-
-    // 3. Jika buku BELUM ADA, simpan dulu detailnya (Cache lokal)
-    if (!localBook) {
-      localBook = await prisma.book.create({
-        data: {
-          openLibraryId: book.openLibraryId,
-          title: book.title,
-          author: book.author,
-          coverUrl: book.coverUrl,
-          publishYear: book.publishYear || 0,  // tambahkan publishYear (gunakan 0 jika tidak ada datanya)
-          description: book.description || "",
-          
-        },
-      });
+    if (!res.ok) {
+      const errorData = await res.json();
+      return { success: false, message: errorData.message || "Terjadi kesalahan" };
     }
 
-    // 4. Cek apakah user sudah mem-bookmark buku ini
-    const existingBookmark = await prisma.bookmark.findUnique({
-      where: {
-        userId_bookId: {
-          userId: userId,
-          bookId: localBook.id,
-        },
-      },
-    });
-
-    if (existingBookmark) {
-      // Jika sudah ada, maka hapus (Un-bookmark)
-      await prisma.bookmark.delete({
-        where: { id: existingBookmark.id },
-      });
-      revalidatePath("/my-books");
-      return { success: true, isBookmarked: false, message: "Berhasil dihapus dari koleksi" };
-    } else {
-      // Jika belum ada, maka tambah (Bookmark)
-      await prisma.bookmark.create({
-        data: {
-          userId: userId,
-          bookId: localBook.id,
-        },
-      });
-      revalidatePath("/my-books");
-      return { success: true, isBookmarked: true, message: "Berhasil disimpan ke koleksi" };
-    }
+    const data = await res.json();
+    revalidatePath("/my-books");
+    return { 
+      success: true, 
+      isBookmarked: data.isBookmarked, 
+      message: data.message || "Bookmark berhasil diperbarui" 
+    };
   } catch (error) {
     console.error("Bookmark Error:", error);
     return { success: false, message: "Terjadi kesalahan pada sistem" };
@@ -81,17 +56,29 @@ export async function toggleBookmark(book: Book) {
 
 // Fungsi pembantu untuk cek status awal (dipakai di halaman Detail Buku)
 export async function checkBookmarkStatus(openLibraryId: string) {
-  const { userId } = await auth();
-  if (!userId) return false;
+  try {
+    const token = await getToken();
+    
+    if (!token) return false;
 
-  const bookmark = await prisma.bookmark.findFirst({
-    where: {
-      userId: userId,
-      book: {
-        openLibraryId: openLibraryId,
-      },
-    },
-  });
+    const res = await fetch(
+      `${API_URL}/bookmarks/check?openLibraryId=${openLibraryId}`,
+      {
+        method: "GET",
+        headers: {
+          "Authorization": `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        cache: "no-store",
+      }
+    );
 
-  return !!bookmark;
+    if (!res.ok) return false;
+
+    const data = await res.json();
+    return data.isBookmarked || false;
+  } catch (error) {
+    console.error("Error checking bookmark status:", error);
+    return false;
+  }
 }

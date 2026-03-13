@@ -15,14 +15,14 @@ export default async function AdminDashboard() {
         {/* Kartu 1: Total User */}
         <StatsCard 
           title="Total User" 
-          value={stats.totalUsers} 
+          value={stats?.totalUsers || 0} 
           icon={<Users className="h-4 w-4 text-blue-600" />} 
         />
         
         {/* Kartu 2: Total Buku di DB */}
         <StatsCard 
           title="Buku Terdata" 
-          value={stats.totalBooks} 
+          value={stats?.totalBooks || 0} 
           icon={<BookOpen className="h-4 w-4 text-green-600" />} 
           desc="Buku yang pernah diakses/disimpan user"
         />
@@ -30,14 +30,14 @@ export default async function AdminDashboard() {
         {/* Kartu 3: Total Bookmark */}
         <StatsCard 
           title="Total Bookmark" 
-          value={stats.totalBookmarks} 
+          value={stats?.totalBookmarks || 0} 
           icon={<Bookmark className="h-4 w-4 text-purple-600" />} 
         />
 
         {/* Kartu 4: Featured */}
         <StatsCard 
           title="Buku Featured" 
-          value={stats.featuredBooks} 
+          value={stats?.featuredBooks || 0} 
           icon={<Star className="h-4 w-4 text-yellow-500" />} 
         />
       </div>

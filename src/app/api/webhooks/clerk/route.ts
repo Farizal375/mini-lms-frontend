@@ -1,95 +1,17 @@
-import { Webhook } from "svix";
-import { headers } from "next/headers";
-import { WebhookEvent } from "@clerk/nextjs/server";
-import { prisma } from "@/lib/prisma";
+/**
+ * Clerk Webhook Endpoint (DEPRECATED)
+ * 
+ * This endpoint was used when the application was using Clerk authentication.
+ * Since the application has migrated to JWT-based authentication through Express backend,
+ * this webhook is no longer needed.
+ * 
+ * Keeping this file for reference, but returning 200 OK for any requests.
+ */
 
 export async function POST(req: Request) {
-  // 1. Ambil Secret dari Environment Variable
-  const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET;
-
-  if (!WEBHOOK_SECRET) {
-    throw new Error("Please add WEBHOOK_SECRET from Clerk Dashboard to .env or .env.local");
-  }
-
-  // 2. Ambil Header Svix untuk verifikasi
-  const headerPayload = await headers();
-  const svix_id = headerPayload.get("svix-id");
-  const svix_timestamp = headerPayload.get("svix-timestamp");
-  const svix_signature = headerPayload.get("svix-signature");
-
-  // Jika header tidak lengkap, tolak request
-  if (!svix_id || !svix_timestamp || !svix_signature) {
-    return new Response("Error occured -- no svix headers", {
-      status: 400,
-    });
-  }
-
-  // 3. Ambil Body
-  const payload = await req.json();
-  const body = JSON.stringify(payload);
-
-  // 4. Verifikasi Signature (Keamanan)
-  const wh = new Webhook(WEBHOOK_SECRET);
-  let evt: WebhookEvent;
-
-  try {
-    evt = wh.verify(body, {
-      "svix-id": svix_id,
-      "svix-timestamp": svix_timestamp,
-      "svix-signature": svix_signature,
-    }) as WebhookEvent;
-  } catch (err) {
-    console.error("Error verifying webhook:", err);
-    return new Response("Error occured", {
-      status: 400,
-    });
-  }
-
-  // 5. PROSES DATA KE DATABASE
-  const eventType = evt.type;
-
-  // --- USER DIBUAT (SIGN UP) ---
-  if (eventType === "user.created") {
-    const { id, email_addresses } = evt.data;
-    const email = email_addresses[0]?.email_address;
-
-    if (email) {
-      await prisma.user.create({
-        data: {
-          id: id,
-          email: email,
-          role: "USER", // Default role
-        },
-      });
-      console.log(`User ${id} created in DB`);
-    }
-  }
-
-  // --- USER DIUPDATE ---
-  if (eventType === "user.updated") {
-    const { id, email_addresses } = evt.data;
-    const email = email_addresses[0]?.email_address;
-
-    if (email) {
-      await prisma.user.update({
-        where: { id: id },
-        data: { email: email },
-      });
-      console.log(`User ${id} updated in DB`);
-    }
-  }
-
-  // --- USER DIHAPUS ---
-  if (eventType === "user.deleted") {
-    const { id } = evt.data;
-    
-    if (id) {
-        await prisma.user.delete({
-            where: { id: id },
-        });
-        console.log(`User ${id} deleted from DB`);
-    }
-  }
-
-  return new Response("", { status: 200 });
+  // Return 200 OK to prevent errors if Clerk still tries to send webhooks
+  return new Response(JSON.stringify({ success: true }), { 
+    status: 200,
+    headers: { "Content-Type": "application/json" }
+  });
 }

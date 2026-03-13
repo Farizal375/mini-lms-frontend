@@ -1,7 +1,6 @@
-import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
-import { prisma } from "@/lib/prisma";
 import { getTrendingBooks } from "@/lib/openlibrary";
+import { getJWTFromCookie, isAdminFromCookie } from "@/lib/jwt-utils";
 import { BookCard } from "@/components/features/book-card"; 
 import Link from "next/link";
 import Image from "next/image";
@@ -11,29 +10,29 @@ import { ArrowRight, Star, BookOpen } from "lucide-react";
 // Revalidate data setiap 1 jam (ISR)
 export const revalidate = 3600;
 
+async function getFeaturedBooks() {
+  try {
+    const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000/api";
+    const res = await fetch(`${API_URL}/books/featured`, {
+      method: "GET",
+      cache: "force-cache",
+      next: { revalidate: 3600 }
+    });
+
+    if (!res.ok) return [];
+    
+    const data = await res.json();
+    return data.data || [];
+  } catch (error) {
+    console.error("Error fetching featured books:", error);
+    return [];
+  }
+}
+
 export default async function Home() {
 
   // 1. LOGIKA TRAFFIC CONTROLLER (REDIRECT ADMIN)
- 
-  const { userId } = await auth();
-  let isAdmin = false;
-
-  if (userId) {
-    try {
-      // Cek database hanya untuk mendapatkan role
-      const user = await prisma.user.findUnique({
-        where: { id: userId },
-        select: { role: true },
-      });
-
-      if (user?.role === "ADMIN") {
-        isAdmin = true;
-      }
-    } catch (error) {
-      console.error("Gagal mengambil data user:", error);
-      // Jika error, kita anggap bukan admin (fail-safe)
-    }
-  }
+  const isAdmin = await isAdminFromCookie();
 
   // PENTING: Redirect harus dilakukan DI LUAR try-catch
   if (isAdmin) {
@@ -45,14 +44,10 @@ export default async function Home() {
 
   const [trendingBooks, featuredBooks] = await Promise.all([
     getTrendingBooks(),
-    prisma.book.findMany({
-      where: { isFeatured: true },
-      take: 1,
-      orderBy: { updatedAt: "desc" },
-    }),
+    getFeaturedBooks(),
   ]);
 
-  const heroBook = featuredBooks[0];
+  const heroBook = featuredBooks && featuredBooks.length > 0 ? featuredBooks[0] : null;
 
   return (
     <div className="min-h-screen bg-slate-50">

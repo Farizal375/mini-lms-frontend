@@ -1,34 +1,56 @@
-import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
+// File: src/middleware.ts
+import { NextResponse } from 'next/server';
+import type { NextRequest } from 'next/server';
 
-// 1. Definisikan rute yang HARUS login (Protected)
-const isProtectedRoute = createRouteMatcher([
-  '/admin(.*)',
-  '/my-books(.*)',
-  '/profile(.*)'
-]);
-
-// 2. Definisikan rute yang BENAR-BENAR publik (termasuk Webhook)
-const isPublicRoute = createRouteMatcher([
-  '/',
-  '/api/webhooks(.*)', 
-  '/sign-in(.*)',
-  '/sign-up(.*)',
-  '/search(.*)',
-  '/book(.*)'
-]);
-
-export default clerkMiddleware(async (auth, req) => {
-  // Jika rute adalah Protected DAN bukan Public, maka lindungi
-  if (isProtectedRoute(req) && !isPublicRoute(req)) {
-    await auth.protect();
+function decodeJWTRole(token: string): string | null {
+  try {
+    const base64Url = token.split('.')[1];
+    if (!base64Url) return null;
+    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+    const jsonPayload = decodeURIComponent(
+      atob(base64).split('').map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)).join('')
+    );
+    const payload = JSON.parse(jsonPayload);
+    return payload.role || null;
+  } catch (e) {
+    return null;
   }
-});
+}
+
+export function middleware(request: NextRequest) {
+  // Ambil token JWT dari cookies browser
+  const token = request.cookies.get('token')?.value;
+  
+  const path = request.nextUrl.pathname;
+  const isAuthPage = path.startsWith('/sign-in') || path.startsWith('/sign-up');
+  const isProtectedRoute = path.startsWith('/admin') || path.startsWith('/my-books');
+
+  // Jika belum login tapi mencoba masuk halaman terlarang, tendang ke login
+  if (!token && isProtectedRoute) {
+    return NextResponse.redirect(new URL('/sign-in', request.url));
+  }
+
+  if (token) {
+    // Jika sudah login tapi mencoba buka halaman login/register, arahkan ke beranda
+    if (isAuthPage) {
+      return NextResponse.redirect(new URL('/', request.url));
+    }
+
+    // Role verification for admin paths
+    if (path.startsWith('/admin')) {
+      const role = decodeJWTRole(token);
+      if (role !== "ADMIN") {
+        return NextResponse.redirect(new URL('/', request.url));
+      }
+    }
+  }
+
+  return NextResponse.next();
+}
 
 export const config = {
   matcher: [
-    // Skip Next.js internals and all static files, unless found in search params
-    '/((?!_next|[^?]*\\.(?:html?|css|js(?!on)|jpe?g|webp|png|gif|svg|ttf|woff2?|ico|csv|docx?|xlsx?|zip|webmanifest)).*)',
-    // Always run for API routes
-    '/(api|trpc)(.*)',
+    // Lindungi semua rute kecuali file statis dan API internal
+    '/((?!api|_next/static|_next/image|favicon.ico|.*\\.svg$).*)',
   ],
 };

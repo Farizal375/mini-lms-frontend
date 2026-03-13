@@ -1,19 +1,18 @@
+// File: src/app/layout.tsx
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
-import { ClerkProvider } from "@clerk/nextjs";
 import { Toaster } from "@/components/ui/sonner";
 import { Navbar } from "@/components/layout/navbar";
 import { Footer } from "@/components/layout/footer";
-import { auth } from "@clerk/nextjs/server";
-import { prisma } from "@/lib/prisma";
+import { cookies } from "next/headers";
 import { ReadingListDrawer } from "@/components/features/reading-list-drawer";
 
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "MuzLib - Perpustakaan Digital",
-  description: "Platform peminjaman dan manajemen buku modern.",
+  title: "MuzLib - Digital Library",
+  description: "Aplikasi Perpustakaan Digital UTS",
 };
 
 export default async function RootLayout({
@@ -21,44 +20,43 @@ export default async function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  // --- AMBIL DATA ROLE USER DI SINI ---
-  const { userId } = await auth();
+  // --- SISTEM BARU: AMBIL ROLE DARI JWT COOKIE ---
+  const cookieStore = await cookies();
+  const token = cookieStore.get("token")?.value;
   let userRole = null;
+  let userId = null;
 
-  if (userId) {
-    // Cek database, tapi gunakan try-catch agar tidak error jika DB belum sync
+  if (token) {
     try {
-      const user = await prisma.user.findUnique({
-        where: { id: userId },
-        select: { role: true },
-      });
-      userRole = user?.role;
-    } catch (error) {
-      console.error("Layout: Gagal ambil role", error);
+      // Decode isi token JWT secara manual (tanpa library tambahan)
+      const base64Url = token.split('.')[1];
+      const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+      const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
+          return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+      }).join(''));
+      
+      const payload = JSON.parse(jsonPayload);
+      userRole = payload.role;
+      userId = payload.id;
+    } catch (e) {
+      console.error("Gagal membaca token JWT", e);
     }
   }
-  
 
   return (
-    <ClerkProvider>
-      <html lang="id">
-        <body 
-          className={`${inter.className} flex flex-col min-h-screen`}
-          suppressHydrationWarning={true}
-        >
-          {/* Kirim userRole ke Navbar */}
-          <Navbar userRole={userRole} />
-          <ReadingListDrawer /> 
-
-          <main className="flex-1 bg-slate-50">
-            {children}
-          </main>
-
-          <Footer />
-          <Toaster />
-          
-        </body>
-      </html>
-    </ClerkProvider>
+    <html lang="en" suppressHydrationWarning>
+      <body className={inter.className} suppressHydrationWarning>
+        {/* Oper userRole ke Navbar persis seperti yang Anda lakukan sebelumnya */}
+        <Navbar userRole={userRole} />
+        
+        <main className="min-h-screen pt-16">
+          {children}
+        </main>
+        
+        <ReadingListDrawer />
+        <Footer />
+        <Toaster />
+      </body>
+    </html>
   );
 }

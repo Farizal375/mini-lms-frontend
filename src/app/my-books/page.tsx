@@ -1,6 +1,5 @@
-import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
-import { prisma } from "@/lib/prisma";
+import { getUserIdFromCookie } from "@/lib/jwt-utils";
 import { BookCard } from "@/components/features/book-card";
 import { Book } from "@/types";
 
@@ -10,38 +9,62 @@ export const metadata = {
   description: "Daftar buku favorit yang telah Anda simpan.",
 };
 
+async function getUserBookmarks(userId: string): Promise<Book[]> {
+  try {
+    const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000/api";
+    
+    // Get token from cookies untuk include di request
+    const { cookies } = await import("next/headers");
+    const cookieStore = await cookies();
+    const token = cookieStore.get("token")?.value;
+
+    if (!token) return [];
+
+    const res = await fetch(`${API_URL}/bookmarks`, {
+      method: "GET",
+      headers: {
+        "Authorization": `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      cache: "no-store",
+    });
+
+    if (!res.ok) return [];
+
+    const result = await res.json();
+    // API returns: [{ id, userId, bookId, createdAt, book: { ... } }]
+    // We need to extract the nested .book object and map to Book type
+    const bookmarks = result.data || [];
+    return bookmarks
+      .filter((item: any) => item.book != null)
+      .map((item: any) => ({
+        id: item.book.openLibraryId,
+        openLibraryId: item.book.openLibraryId,
+        title: item.book.title,
+        author: item.book.author,
+        coverUrl: item.book.coverUrl || "/images/book-placeholder.png",
+        publishYear: item.book.publishYear,
+        description: item.book.description,
+        isFeatured: item.book.isFeatured ?? false,
+        isHidden: item.book.isHidden ?? false,
+      }));
+  } catch (error) {
+    console.error("Error fetching bookmarks:", error);
+    return [];
+  }
+}
+
 export default async function MyBooksPage() {
   // 1. Cek User Login (Proteksi Halaman)
-  const { userId } = await auth();
+  const userId = await getUserIdFromCookie();
 
   // Jika belum login, tendang ke halaman login
   if (!userId) {
     redirect("/sign-in");
   }
 
-  // 2. Ambil data dari Database Lokal (Prisma)
-  const bookmarks = await prisma.bookmark.findMany({
-    where: {
-      userId: userId,
-    },
-    include: {
-      book: true, 
-    },
-    orderBy: {
-      createdAt: "desc", 
-    },
-  });
-
-  // 3. Mapping: Ubah format Database Prisma ke format 'Book' untuk UI
-  const myBooks: Book[] = bookmarks.map((item) => ({
-    id: item.book.id,               
-    openLibraryId: item.book.openLibraryId,
-    title: item.book.title,
-    author: item.book.author || "Penulis Tidak Diketahui",
-    coverUrl: item.book.coverUrl || "/images/book-placeholder.png",
-    publishYear: 0,                 // Kita set 0 karena di DB lokal tidak ada tahun terbit
-    isFeatured: item.book.isFeatured,
-  }));
+  // 2. Ambil data dari Backend API
+  const myBooks = await getUserBookmarks(userId);
 
   return (
     <div className="container mx-auto px-4 py-8 min-h-screen bg-slate-50">

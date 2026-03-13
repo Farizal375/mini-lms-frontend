@@ -6,7 +6,6 @@ import { Bookmark, Loader2 } from "lucide-react"; // 1. Import Loader2 (Ikon Spi
 import { toast } from "sonner";
 import { toggleBookmark } from "@/actions/bookmark-action";
 import { Book } from "@/types";
-import { useAuth } from "@clerk/nextjs";
 import { useRouter } from "next/navigation";
 
 interface BookmarkButtonProps {
@@ -29,18 +28,11 @@ export function BookmarkButton({
   
   const [isBookmarked, setIsBookmarked] = useState(initialState);
   const [isPending, startTransition] = useTransition(); // Ini mendeteksi status loading server
-  const { isSignedIn } = useAuth();
   const router = useRouter();
 
   const handleClick = async (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-
-    if (!isSignedIn) {
-      toast.error("Silakan login terlebih dahulu!");
-      router.push("/sign-in");
-      return;
-    }
 
     // Optimistic Update: Kita simpan state sebelumnya jaga-jaga kalau gagal
     const previousState = isBookmarked;
@@ -56,9 +48,15 @@ export function BookmarkButton({
           setIsBookmarked(result.isBookmarked);
         }
       } else {
-        // Balikkan state jika gagal
-        setIsBookmarked(previousState);
-        toast.error(result.message);
+        // Check if error is due to not being logged in
+        if (result.message?.includes("login") || result.message?.includes("Unauthorized")) {
+          toast.error("Silakan login terlebih dahulu!");
+          router.push("/sign-in");
+        } else {
+          // Balikkan state jika gagal
+          setIsBookmarked(previousState);
+          toast.error(result.message);
+        }
       }
     });
   };
